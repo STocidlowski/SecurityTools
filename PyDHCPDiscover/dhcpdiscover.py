@@ -3,31 +3,35 @@ import struct
 from uuid import getnode as get_mac
 from random import randint
 
+
 # Based on http://code.activestate.com/recipes/577649-dhcp-query/
 
 def strToIP(input):
-    return '.'.join(str(int(x.encode('hex'), 16)) for x in input)
+    return '.'.join(str(x) for x in input)
+
 
 def getMacString():
     mac = str(hex(get_mac())[2:])
     while (len(mac) < 12):
         mac = '0' + mac
-    macB = ''
-    for i in range(0, 12, 2) :
+    macB = b''
+    for i in range(0, 12, 2):
         m = int(mac[i:i + 2], 16)
         macB += struct.pack('!B', m)
     return macB
 
+
 def genTransactionID():
-    transactionID = ''
+    transactionID = b''  # Initialize as bytes object
     for i in range(4):
         t = randint(0, 255)
         transactionID += struct.pack('!B', t)
     return transactionID
 
+
 def buildDiscoverPacket(transactionID):
     # en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol#DHCP_discovery
-    
+
     packet = b''
     # Message type: Boot Request (1)
     packet += b'\x01'
@@ -60,7 +64,7 @@ def buildDiscoverPacket(transactionID):
     # Boot file name not given
     packet += b'\x00' * 125
     # Magic cookie: DHCP
-    packet += '\x63\x82\x53\x63'
+    packet += b'\x63\x82\x53\x63'
     # Option: (t=53,l=1) DHCP Message Type = DHCP Discover
     packet += b'\x35\x01\x01'
     # Option: (t=61,l=6) Client MAC
@@ -71,61 +75,63 @@ def buildDiscoverPacket(transactionID):
     packet += b'\xff'
     return packet
 
+
 def getOption(key, value):
     # en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol#DHCP_options
 
     optName = 'Option not found'
     optValue = 'N/A'
 
-    if key is 1:
+    if key == 1:
         optName = 'Subnet Mask'
         optValue = strToIP(value)
-    elif key is 3:
+    elif key == 3:
         optName = 'Available Router'
         optValue = strToIP(value)
-    elif key is 6:
+    elif key == 6:
         optName = 'Domain Name Server(s)'
         optValue = strToIP(value)
-    elif key is 28:
+    elif key == 28:
         optName = 'Broadcast Address'
         optValue = strToIP(value)
-    elif key is 51:
+    elif key == 51:
         optName = 'IP address Lease Time'
         optValue = str(struct.unpack('!L', value)[0])
-    elif key is 53:
+    elif key == 53:
         optName = 'DHCP Message Type'
-        if ord(value) is 1:
+        if value == 1:
             optValue = 'DHCP Discover message (DHCPDiscover)'
-        elif ord(value) is 2:
+        elif value == 2:
             optValue = 'DHCP Offer message (DHCPOffer)'
-        elif ord(value) is 3:
+        elif value == 3:
             optValue = 'DHCP Request message (DHCPRequest)'
-        elif ord(value) is 4:
+        elif value == 4:
             optValue = 'DHCP Decline message (DHCPDecline)'
-        elif ord(value) is 5:
+        elif value == 5:
             optValue = 'DHCP Acknowledgment message (DHCPAck)'
-        elif ord(value) is 6:
+        elif value == 6:
             optValue = 'DHCP Negative Acknowledgment message (DHCPNak)'
         else:
             optValue = 'Message type not supported'
-    elif key is 54:
+    elif key == 54:
         optName = 'Server Identifier'
         optValue = strToIP(value)
-    elif key is 58:
+    elif key == 58:
         optName = 'Renewal (T1) Time Value'
         optValue = str(struct.unpack('!L', value)[0])
-    elif key is 59:
+    elif key == 59:
         optName = 'Rebinding (T2) Time Value'
         optValue = str(struct.unpack('!L', value)[0])
     return [optName, optValue]
 
+
 def unpackOfferPacket(data, transactionID):
     # en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol#DHCP_offer
 
-    #print(':'.join(x.encode('hex') for x in data))
+    print(':'.join(str(x) for x in data))
     if (data[4:8] == transactionID):
         print('\nDHCP SERVER FOUND!\n-------------------')
-        
+
         offerIP = strToIP(data[16:20])
         nextServerIP = strToIP(data[20:24])
         dhcpOptions = data[240:]
@@ -133,18 +139,18 @@ def unpackOfferPacket(data, transactionID):
         optionsOut = []
         toPrint = {}
         nextOption = dhcpOptions[0]
-        while ord(nextOption) is not 255:
-            optionKey = ord(nextOption)
-            optionLen = ord(dhcpOptions[1])
-            optionVal = dhcpOptions[2:2+optionLen]
+        while nextOption != 255:
+            optionKey = nextOption
+            optionLen = dhcpOptions[1]
+            optionVal = dhcpOptions[2:2 + optionLen]
             optionsDict[optionKey] = optionVal
-            dhcpOptions = dhcpOptions[2+optionLen:]
+            dhcpOptions = dhcpOptions[2 + optionLen:]
             nextOption = dhcpOptions[0]
 
         for key in optionsDict:
             optionsOut.append(getOption(key, optionsDict[key]))
 
-        #print(optionsOut)
+        # print(optionsOut)
 
         # Current iteration may not properly support more than one DNS server
         """
@@ -159,7 +165,7 @@ def unpackOfferPacket(data, transactionID):
             for i in range(1, len(DNS)): 
                 print('     {0:22s} {1:15s}'.format(' ', DNS[i]))
         """
-            
+
         for i in range(len(optionsOut)):
             print('{0:25s} : {1:15s}'.format(optionsOut[i][0], optionsOut[i][1]))
 
@@ -167,16 +173,17 @@ def unpackOfferPacket(data, transactionID):
         print('{0:25s} : {1:15s}'.format('Gateway IP Address', nextServerIP))
         print('')
 
+
 dhcpSrv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 dhcpSrv.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 dhcpSrv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 try:
-    dhcpSrv.bind(('192.168.5.100', 68))
+    dhcpSrv.bind(('0.0.0.0', 68))
 except Exception as ex:
     print('There was an exception with the bind: ' + str(ex))
     dhcpSrv.close()
-    #exit()
+    # exit()
 
 transactionID = genTransactionID()
 
@@ -188,10 +195,10 @@ dhcpSrv.settimeout(3)
 try:
     while (1):
         data = dhcpSrv.recv(2048)
-        #print(str(data))
+        # print(str(data))
         unpackOfferPacket(data, transactionID)
 except Exception as ex:
-    if 'timed out' not in ex:
+    if 'timed out' not in str(ex):
         print('There was an exception with the offer: ' + str(ex))
 
 dhcpSrv.close()
